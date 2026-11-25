@@ -25,8 +25,9 @@
 
 - 发布标签固定为 `vX.Y.Z`，其中 `X.Y.Z` 是根 `pyproject.toml` 的版本；该标签必须未被其他提交占用。
 - 版本号应单调递增。同一版本重复出现时，`version` job 校验已有标签是否指向本次提交：指向同一提交则复用，指向其他提交则 fail loud（`发布标签 vX.Y.Z 已指向其他提交`）。
+- **回滚一律通过把版本向前移动完成**（例如发布 `0.3.0` 后要回滚，提交一个 bump 到 `0.3.1` 的修复），而不是 revert 版本 bump 提交：revert 会把根版本改回已发布过的值，`version` job 判定版本变化后会在标签占用校验处 fail loud，main 流水线变红。
 - **历史标签占位**：仓库已存在早于本流程的 `v0.1.0`、`v0.2.0` 两个标签，而根版本当前是 `0.1.0`。下次发布必须选择尚未被占用的版本（例如 `>= 0.3.0`），否则会命中标签冲突而中断流水线；选择低于 `v0.2.0` 的版本会发布一个序号更小却可能被标为 latest 的 release，应避免。若确需沿用某个已占用版本，须先移除或移动对应标签。
-- `main` 上发布保留 Latest 标记；维护分支 `X.Y.x` 上发布标记 `--latest=false`。
+- `main` 上发布保留 Latest 标记；维护分支 `X.Y.x` 上发布标记 `--latest=false`。工作流级 `concurrency`（`release-${{ github.ref }}`）按分支串行整个流水线：同一分支上多个版本 bump 相继落库时不会并行竞争 Latest 标记（GitHub 按发布时间而非 semver 分配 Latest）。
 
 ## 新建维护分支的首次推送
 
@@ -41,7 +42,7 @@
 
 `publish` 先查询同名 release：
 
-- 已发布（`isDraft == false`）：校验所有附件齐全；缺失则失败（fail loud），齐全则直接成功（幂等重跑）。
+- 已发布（`isDraft == false`）：校验附件，缺失的附件用 `gh release upload` 补传（幂等，不破坏已发布的 release）；全部齐全则直接成功（幂等重跑）。
 - 草稿（`isDraft == true`）：删除该草稿后重新创建并上传附件，避免 `gh release create` 返回 422 already_exists；删除草稿不会删除已推送的标签。
 - 不存在：正常创建。
 

@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# 按分支串行整个发布流水线：同一分支上多个版本 bump 相继落库时不会并行
+# 竞争 Latest 标记（GitHub 按发布时间而非 semver 分配 Latest）。
+concurrency:
+  group: release-${{ github.ref }}
+
 jobs:
   version:
     if: '!github.event.created && !github.event.deleted'
@@ -148,12 +153,16 @@ jobs:
           fi
           if release_json=$(gh release view "$RELEASE_TAG" --json isDraft,assets 2>/dev/null); then
             if [[ "$(jq -r '.isDraft' <<< "$release_json")" == 'false' ]]; then
+              missing=()
               for package in "${packages[@]}"; do
                 if ! jq -e --arg name "${package##*/}" 'any(.assets[]; .name == $name)' <<< "$release_json" >/dev/null; then
-                  echo "::error::Release $RELEASE_TAG 缺少附件 ${package##*/}。"
-                  exit 1
+                  missing+=("$package")
                 fi
               done
+              if (( ${#missing[@]} > 0 )); then
+                echo "Release $RELEASE_TAG 缺少附件，补传：${missing[*]}。"
+                gh release upload "$RELEASE_TAG" "${missing[@]}"
+              fi
               exit 0
             fi
             echo "删除已存在的草稿 release ${RELEASE_TAG}。"
