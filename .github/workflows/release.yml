@@ -30,7 +30,11 @@ jobs:
         env:
           BEFORE_SHA: ${{ github.event.before }}
         run: |
-          git fetch --no-tags --depth=1 origin "$BEFORE_SHA"
+          if ! git fetch --no-tags --depth=1 origin "$BEFORE_SHA" 2>"$RUNNER_TEMP/fetch-before.log"; then
+            cat "$RUNNER_TEMP/fetch-before.log" >&2
+            echo "::error::无法获取推送前的提交 $BEFORE_SHA（可能已被 force push 淘汰而不可达），无法比较版本变化。请确认该推送的前一提交仍可达，或改用正常（非 force）推送。"
+            exit 1
+          fi
           changed=$(git diff --name-only "$BEFORE_SHA" "$GITHUB_SHA" -- pyproject.toml)
           if [[ -n "$changed" ]]; then
             git show "$BEFORE_SHA:pyproject.toml" > "$RUNNER_TEMP/previous-pyproject.toml"

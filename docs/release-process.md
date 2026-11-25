@@ -8,7 +8,7 @@
 
 - 推送命中 `main` 或 `[0-9]+.[0-9]+.x` 分支时运行 `version` job。
 - `version` job 比较本次推送前后的根 `pyproject.toml`；只有版本发生变化才推导标签，并在同一次运行内继续 `ci` → `build` → `publish`。
-- 手动 `git push` 一个 `v*` 标签不会触发任何发布。
+- 手动 `git push` 一个 `v*` 标签不会触发任何发布。该结论仅对指向本工作流变更**之后**提交的标签成立：指向变更之前提交的 `v*` 标签仍会命中旧版（`tags` 触发的）release.yml 并可能发布 release。
 
 ## 版本来源与发布火车
 
@@ -20,6 +20,7 @@
 
 - 触发检测与标签推导只看根 `pyproject.toml`；修改 `packages/**/pyproject.toml` 不会触发发布。
 - 需要发布时，先 bump 根 `pyproject.toml` 的 `version`，提交并推送。
+- **bump 必须在同一提交内更新 `uv.lock`**：`uv.lock` 记录了根项目版本（`name = "axcor"` / `source = { virtual = "." }`），ci 的 `uv sync --locked` 会校验两者一致。用 `uv version X.Y.Z` 可同时更新根 `pyproject.toml` 与 `uv.lock`；手工编辑 `pyproject.toml` 则必须在同一次提交内执行 `uv lock`。若只改版本不重锁，ci 会确定性失败，而 `version` job 已先推送了 `vX.Y.Z` 标签，之后补一个只更新 `uv.lock` 的提交不会触发发布（版本未变化），该标签会成为无 release 的死标签。
 
 ## 版本策略与标签约束
 
@@ -28,6 +29,7 @@
 - **回滚一律通过把版本向前移动完成**（例如发布 `0.3.0` 后要回滚，提交一个 bump 到 `0.3.1` 的修复），而不是 revert 版本 bump 提交：revert 会把根版本改回已发布过的值，`version` job 判定版本变化后会在标签占用校验处 fail loud，main 流水线变红。
 - **历史标签占位**：仓库已存在早于本流程的 `v0.1.0`、`v0.2.0` 两个标签，而根版本当前是 `0.1.0`。下次发布必须选择尚未被占用的版本（例如 `>= 0.3.0`），否则会命中标签冲突而中断流水线；选择低于 `v0.2.0` 的版本会发布一个序号更小却可能被标为 latest 的 release，应避免。若确需沿用某个已占用版本，须先移除或移动对应标签。
 - `main` 上发布保留 Latest 标记；维护分支 `X.Y.x` 上发布标记 `--latest=false`。工作流级 `concurrency`（`release-${{ github.ref }}`）按分支串行整个流水线：同一分支上多个版本 bump 相继落库时不会并行竞争 Latest 标记（GitHub 按发布时间而非 semver 分配 Latest）。
+- 跨分支同时 bump 到同一版本号时存在已知竞态：不同分支的 `concurrency` 组互不影响、可并行，两个分支在不同提交上 bump 出同一 `vX.Y.Z` 且预检时都未见到标签时，后到者 push 标签会被 git 以 `rejected` 拒绝，报错形态是 git 原生错误而非工作流自己的「已指向其他提交」文案。行为与策略一致（版本冲突 fail loud），属已知特性。
 
 ## 新建维护分支的首次推送
 
@@ -37,6 +39,13 @@
 2. 再单独推送包含根 `pyproject.toml` 版本 bump 的提交。
 
 若把「建分支」和「bump 版本」放在同一次 push 里，创建推送会被跳过，而后续推送的 diff 范围从创建后的 head 开始，该次 bump 永远不会被发布（流水线只显示 skipped、不报错）。
+
+## CI 失败后的恢复方式
+
+标签在 `version` job 中先于 `ci` → `build` → `publish` 推送。若 bump 提交自身带确定性 CI 失败（例如 `uv.lock` 未同步，或 bump 与坏代码在同一次直推中一起落库），重跑原 run 只会重跑同一棵树、同样失败；随后推一个「只修代码、不 bump 版本」的提交不会触发发布（根 `pyproject.toml` 无变化 → 流水线整体 skipped）。恢复方式：
+
+- **继续向前 bump**：在修复提交中把根版本再向前移动（例如 `v0.3.0` 失败后修复并 bump 到 `0.3.1`），新提交会触发完整流水线并发布新版本；失败留下的旧标签 `v0.3.0` 不会自动消失，若确需复用该版本号须带外删除或移动标签。
+- 经 PR 合入的 bump 有 PR CI 拦截，正常不会出现该场景；此问题主要影响维护分支「两步直推」这类绕过 PR CI 的流程。
 
 ## 已存在的 Release 与草稿
 
