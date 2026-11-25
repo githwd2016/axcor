@@ -9,10 +9,10 @@ on:
 permissions:
   contents: read
 
-# 按分支串行整个发布流水线：同一分支上多个版本 bump 相继落库时不会并行
-# 竞争 Latest 标记（GitHub 按发布时间而非 semver 分配 Latest）。
+# 保留已入队的版本 bump，避免后续普通推送替换等待中的发布。
 concurrency:
   group: release-${{ github.ref }}
+  queue: max
 
 jobs:
   version:
@@ -78,7 +78,7 @@ jobs:
           if [[ -n "$existing_tag" ]]; then
             git fetch --no-tags --depth=1 origin "$tag_ref"
             if [[ "$(git rev-parse 'FETCH_HEAD^{commit}')" != "$GITHUB_SHA" ]]; then
-              echo "::error::发布标签 $tag 已指向其他提交，请选择一个未被占用且高于现有标签的版本。"
+              echo "::error::发布标签 $tag 已指向其他提交，请选择一个未被占用的版本。"
               exit 1
             fi
           else
