@@ -1,5 +1,7 @@
 name: release
 
+# 发布流程与版本策略见 docs/release-process.md
+
 on:
   push:
     branches: [main, '[0-9]+.[0-9]+.x']
@@ -47,7 +49,7 @@ jobs:
               print(tomllib.load(previous)["project"]["version"] != tomllib.load(current)["project"]["version"])
           PY
           )
-          if [[ "$version_changed" == 'False' ]]; then
+          if [[ "$version_changed" != 'True' ]]; then
             exit 0
           fi
 
@@ -67,7 +69,7 @@ jobs:
           if [[ -n "$existing_tag" ]]; then
             git fetch --no-tags --depth=1 origin "$tag_ref"
             if [[ "$(git rev-parse 'FETCH_HEAD^{commit}')" != "$GITHUB_SHA" ]]; then
-              echo "::error::发布标签 $tag 已指向其他提交。"
+              echo "::error::发布标签 $tag 已指向其他提交，请选择一个未被占用且高于现有标签的版本。"
               exit 1
             fi
           else
@@ -138,7 +140,12 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG: ${{ needs.version.outputs.tag }}
         run: |
+          shopt -s nullglob
           packages=(dist/*.whl dist/*.tar.gz dist/*.tgz)
+          if (( ${#packages[@]} == 0 )); then
+            echo "::error::dist 目录中没有可发布的发行包。"
+            exit 1
+          fi
           if release_json=$(gh release view "$RELEASE_TAG" --json isDraft,assets 2>/dev/null); then
             if [[ "$(jq -r '.isDraft' <<< "$release_json")" == 'false' ]]; then
               for package in "${packages[@]}"; do
@@ -149,6 +156,8 @@ jobs:
               done
               exit 0
             fi
+            echo "删除已存在的草稿 release ${RELEASE_TAG}。"
+            gh release delete "$RELEASE_TAG" --yes
           fi
           release_flags=(--verify-tag --generate-notes)
           if [[ "$GITHUB_REF_NAME" != 'main' ]]; then

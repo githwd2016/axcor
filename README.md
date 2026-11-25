@@ -92,6 +92,7 @@ examples/  conf/  docs/
 - [docs/event-system.md](docs/event-system.md) — 事件系统
 - [docs/watchdog.md](docs/watchdog.md) — 故障检测
 - [docs/develop-workflows-guide.md](docs/develop-workflows-guide.md) — 工作流开发指南
+- [docs/release-process.md](docs/release-process.md) — 发布流程与版本策略
 - [docs/opencode-file-provenance.md](docs/opencode-file-provenance.md) — OpenCode 文件归因指南
 
 ## 许可证
