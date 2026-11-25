@@ -18,11 +18,11 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: PR 用词检查
-        if: github.event_name == 'pull_request'
+      - name: 用词检查
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
         run: python scripts/check_ai_words.py --pr "$PR_BASE" "$PR_HEAD"
 
       - name: 安装锁定依赖
