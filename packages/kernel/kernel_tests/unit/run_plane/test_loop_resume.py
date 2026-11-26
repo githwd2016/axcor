@@ -196,6 +196,39 @@ async def test_pause_and_resume_preserve_query_number(
     assert prompts == [expected_prompt]
 
 
+@pytest.mark.parametrize(
+    ("pending_kind", "pending_value"),
+    [
+        ("gate", "reviewer 反馈：请重写输出"),
+        ("manual", "手动干预：改用方案 B"),
+    ],
+)
+async def test_resume_without_native_session_id_reprompts_initial_even_with_feedback(
+    monkeypatch, pending_kind, pending_value
+) -> None:
+    """无 native_session_id 恢复轮：即使存在待注入的 gate/manual 反馈，
+    也只重发初始 prompt——新运行时会话没有任务上下文，单独下发反馈
+    会让新会话拿不到任务指令。"""
+    engine = _engine()
+    prompts: list[str] = []
+    session = FakeSession(prompts, [[]])
+    session.native_session_id = None
+    session.current_iteration = 3  # 保证 iteration > 1，命中恢复分支
+    monkeypatch.setattr(session, "_resume_next", True)
+    if pending_kind == "gate":
+        session._pending_gate_feedback = pending_value
+    else:
+
+        async def poll_manual_prompt() -> str:
+            return pending_value
+
+        monkeypatch.setattr(session, "poll_manual_prompt", poll_manual_prompt)
+
+    await getattr(engine, "_run_iteration")(session)
+
+    assert prompts == ["创建 output/agent-2.txt"]
+
+
 async def test_resume_after_zero_event_cancel_reprompts_initial(monkeypatch) -> None:
     """首轮取消零事件 → 恢复轮重发初始 prompt（而非无上下文的「请继续」）。"""
     engine = _engine()

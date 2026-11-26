@@ -539,7 +539,11 @@ class SingleLoopEngine:
             session.clear_resume_next()
             reprompt = session.consume_resume_reprompt()
             if not session.native_session_id:
-                prompt = self._render_session_prompt(session, 1, feedback)
+                # 新运行时会话没有旧会话上下文：重发初始 prompt 锚定任务。
+                # 不能把非空 feedback 传进渲染——fallback 在 iteration==1 时
+                # feedback 优先会整段丢弃初始 prompt，新会话拿不到任务指令。
+                feedback = None
+                prompt = self._render_session_prompt(session, 1, None)
             elif gate_fb:
                 prompt = self._render_session_prompt(session, iteration, feedback)
             elif manual:
