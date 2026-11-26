@@ -538,7 +538,9 @@ class SingleLoopEngine:
         if session.resume_next and iteration > 1:
             session.clear_resume_next()
             reprompt = session.consume_resume_reprompt()
-            if gate_fb:
+            if not session.native_session_id:
+                prompt = self._render_session_prompt(session, 1, feedback)
+            elif gate_fb:
                 prompt = self._render_session_prompt(session, iteration, feedback)
             elif manual:
                 feedback = f"User intervention: {manual}"

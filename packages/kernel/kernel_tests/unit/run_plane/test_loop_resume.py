@@ -72,7 +72,7 @@ class FakeSession:
         self._resume_reprompt = False
         self._pending_gate_feedback = None
         self.pause_requested = False
-        self.native_session_id = None
+        self.native_session_id = "native-fake"
 
     # 与 Session 的公有访问口对齐（loop 引擎经公有方法读写这些运行态）；
     # 方法序与实现变量名有意与 Session 不同，避免构成重复代码窗口
@@ -159,11 +159,15 @@ async def _run_cancelled(engine: SingleLoopEngine, session: FakeSession) -> None
 
 
 @pytest.mark.parametrize(
-    ("paused_iteration", "expected_iteration", "expected_prompt"),
-    [(0, 1, "创建 output/agent-2.txt"), (3, 4, "请继续你之前的工作。")],
+    ("paused_iteration", "native_session_id", "expected_iteration", "expected_prompt"),
+    [
+        (0, None, 1, "创建 output/agent-2.txt"),
+        (3, None, 4, "创建 output/agent-2.txt"),
+        (3, "native-worker", 4, "请继续你之前的工作。"),
+    ],
 )
 async def test_pause_and_resume_preserve_query_number(
-    monkeypatch, paused_iteration, expected_iteration, expected_prompt
+    monkeypatch, paused_iteration, native_session_id, expected_iteration, expected_prompt
 ) -> None:
     """通过真实暂停恢复入口验证持久化轮次和下一条查询事件。"""
     pool = SessionPool()
@@ -173,7 +177,7 @@ async def test_pause_and_resume_preserve_query_number(
         SessionConfig(name="worker", role="worker", initial_prompt="创建 output/agent-2.txt")
     )
     session.current_iteration = paused_iteration
-    monkeypatch.setattr(session, "_recover_native_session_id", lambda: None)
+    session.native_session_id = native_session_id
     prompts: list[str] = []
     monkeypatch.setattr(session, "query", FakeSession(prompts, [[]]).query)
 

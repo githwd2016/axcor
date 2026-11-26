@@ -372,6 +372,7 @@ class RunRecord:
 > - `native_session_id` 是运行时分配的会话 ID，用于续跑和定位转录。EventStore 和 RunStore 初始化时会在事务内将旧 `sessions.sdk_session_id` 列原地改名，保留已有 ID。Session API 和新写入的事件及插件元数据使用新字段名，历史事件保留原始 payload。
 > - `SessionPool._persist_session`（经 `event_router.store_session`）每次状态变更（capture native_session_id / breather 设 result / stop/pause/resume）实时 UPSERT 一行到 events.db 的 sessions 表。SQLite WAL 模式下进程被 kill 也不丢（自动 checkpoint）。
 > - 重启时 `load_sessions()` 扫描守护进程库的 sessions 表，还原 ghost session 到内存 pool。
+> - `resume` 使用当前 Session 已记录的 `native_session_id` 接续运行时会话。缺少该 ID 时，下次 query 发送初始提示并启动新的运行时会话，Workflow Controller Session 的轮次继续递增。此规则适用于 OpenCode、Claude 和 Codex。
 >
 > **注入关系**：`EventStoreRouter` 构造早于 `SessionPool`（router 需要 config，pool 还没建）。orchestrator 先建 router，再建 pool：`router.set_run_stamper(stamper)` 让事件写库前按归属缓存补 run 维度戳；sessions 表普通写由 router 直达 EventStore 写连接（store 层对 core 零运行时引用，残留仅 RunStamper 签名的 TYPE_CHECKING 类型引用；mint/discard 的事务内嵌名册写在 RunStore 连接内自持）；`pool.set_event_router(router)` 让 pool 的 `_persist_session` 能调到 `store_session`（守护进程单库直写，不按 session cwd 路由）。缺任一注入，对应方向的功能就空跑。
 - **事件类型**（23 个）：`tool_use`、`tool_result`、`tool_call`、`assistant_message`、`notification`、`iteration_start`、`iteration_end`、`user_message`、`result`、`error`、`rate_limit_event`、`subagent_start`、`subagent_progress`、`subagent_stop`、`main_context`、`subagent_context`、`prompt_overlay_registered`、`prompt_overlay_cleared`、`log_auto`、`log_query`、`log_eval`、`log_loop`、`log_manual`

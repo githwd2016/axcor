@@ -158,11 +158,23 @@ class TestSession:
         await session.play()
         assert not session.pause_requested
 
-    async def test_resume_continues_claude_session_on_next_query(self, monkeypatch):
+    @pytest.mark.parametrize(
+        ("runtime", "native_session_id"),
+        [
+            ("claude_cli", "native-xyz"),
+            ("claude_cli", None),
+            ("codex_cli", None),
+            ("opencode", None),
+        ],
+    )
+    async def test_resume_uses_only_the_recorded_native_session_id(
+        self, monkeypatch, runtime, native_session_id
+    ):
+        """验证缺少 ID 时直接新建运行时会话。"""
         from workflow_controller.session.events import Event, EventType
 
-        session = Session(name="test", role="worker")
-        session.native_session_id = "sdk-xyz"
+        session = Session(config=SessionConfig(name="test", runtime=runtime))
+        session.native_session_id = native_session_id
         await session.pause()
 
         captured: dict = {}
@@ -179,10 +191,18 @@ class TestSession:
 
         monkeypatch.setattr("workflow_controller.driver.factory.create_driver", fake_create_driver)
 
+        def fail_db_probe():
+            """检测恢复流程是否探测 OpenCode 数据库。"""
+            pytest.fail("resume must not look up a native session ID in the OpenCode database")
+
+        monkeypatch.setattr(
+            "workflow_controller.driver.opencode._resolve_opencode_db_path", fail_db_probe
+        )
         await session.resume()
+        assert session.resume_next
         async for _ in session.query("prompt"):
             pass
-        assert captured.get("resume") == "sdk-xyz"
+        assert captured["resume"] == native_session_id
 
     async def test_query_passes_cli_wrapper_to_driver(self, monkeypatch):
         """验证 Session 向驱动传递 wrapper。"""

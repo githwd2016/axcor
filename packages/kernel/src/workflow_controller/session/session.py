@@ -117,8 +117,7 @@ class Session:
         self._manual_prompt_queue: asyncio.Queue[str] = asyncio.Queue()
         self.waiting_for_auto_reply_fallback = False
         self._stop_requested: bool = False
-        # resume() 后下次 query 用 native_session_id 续同一个 claude session
-        # （区别于 play()：play 新起一个 claude session，不续上下文）。
+        # 标记下次 query 是暂停后的恢复轮。
         self._resume_next: bool = False
         # 首轮被中途取消且零事件（prompt 未进 sdk 会话）——恢复轮须重发
         # 初始 prompt 而非无上下文的「请继续你之前的工作。」
@@ -401,15 +400,7 @@ class Session:
         self._active_since = None
 
     async def resume(self) -> None:
-        """Resume after pause, continuing the SAME opencode session (native_session_id)
-        on the next query via --session. If native_session_id is not yet captured,
-        tries to recover it from opencode.db as a best-effort fallback; if still
-        not found, the driver simply omits --session (fresh opencode session).
-        """
-        if not self.native_session_id:
-            # 兜底恢复走线程：内含 subprocess（opencode db path，首调未缓存）
-            # + 同步 sqlite 读，在 loop 上跑会停摆事件循环（定时器/信号迟到）
-            await asyncio.to_thread(self._recover_native_session_id)
+        """接续已记录的运行时会话，缺少 ID 时启动新的运行时会话。"""
         self._resume_next = True
         self.pause_requested = False
         self.pause_event.set()
@@ -526,42 +517,6 @@ class Session:
             self.last_error = driver_error or "gate failed"
             await self.emit_outcome("failed")
         return driver_error
-
-    def _recover_native_session_id(self) -> None:
-        """按 cwd 和创建时间从 opencode.db 恢复 native_session_id。"""
-        import contextlib
-        import sqlite3
-
-        from workflow_controller.driver.opencode import _resolve_opencode_db_path
-
-        db_path = _resolve_opencode_db_path()
-        if db_path is None or not db_path.is_file():
-            return
-        cwd = getattr(self.config, "cwd", None) or ""
-        if not cwd:
-            return
-        try:
-            with contextlib.closing(sqlite3.connect(str(db_path))) as conn:
-                row = conn.execute(
-                    "SELECT id FROM session WHERE directory = ? ORDER BY time_created DESC LIMIT 1",
-                    (cwd,),
-                ).fetchone()
-                if row:
-                    self.native_session_id = row[0]
-                    # 启发式兜底：并行 agent 节点共享同一 work_dir 时，
-                    # 「最近一条」未必对应当前 Workflow Controller session，可能 resume 到
-                    # 错误 session。命中即告警，便于串台时排查。
-                    logger.warning(
-                        "recovered native_session_id=%s for session %s via "
-                        "cwd+time heuristic; may be ambiguous when multiple "
-                        "opencode sessions share work_dir %s",
-                        row[0],
-                        self.id,
-                        cwd,
-                    )
-        except Exception:
-            logger.debug("native_session_id 恢复探测失败（sqlite 读失败），保持现状")
-        # plugin_metadata 是溯源信息（birth_traceback 等），不属于运行态，reset 保留。
 
     async def _apply_resolved_provider(self) -> None:
         """auth_rotator 解析可用 provider 并同步 config（必要时通知回调）。"""
