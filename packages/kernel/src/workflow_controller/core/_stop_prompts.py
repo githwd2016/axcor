@@ -23,11 +23,11 @@ from __future__ import annotations
 _STOP_JUDGE_PROMPT = """\
 【首先读这一条】你只能输出一个 JSON 对象。不能输出任何解释、闲聊、问候或 markdown。
 
-worker 已完成会话任务目标下的全部必需项时,输出:
-{{"action":"let_exit","feedback":"","rationale":"all done"}}
-
-尚未完成时,输出:
+无法确认整个任务已完成时,输出:
 {{"action":"block_with_feedback","feedback":"...","rationale":"..."}}
+
+有明确证据确认 worker 在会话任务目标下的全部必需项已完成时,输出:
+{{"action":"let_exit","feedback":"","rationale":"任务范围与验收均已确认"}}
 
 键名 action / feedback / rationale 不能改。rationale ≤20 字。let_exit 时 feedback 为空字符串。
 
@@ -51,7 +51,11 @@ worker 最后的输出(在 <<< 和 >>> 之间,已是完整内容):
 【判断规则】
 
 1. **let_exit 的条件**:
-   worker 明确自述会话任务目标下的全部必需项已完成,且要求落盘的产物确实落盘。
+   先确定完整任务范围: 以会话任务目标为准; 目标笼统时,末条回复须明确交代本次任务的范围及整体完成情况。
+   再核对完成证据: 末条回复须覆盖全部必需项及已知的验收要求,且要求落盘的产物确实落盘。
+   路径存在、文件有内容、报告更新或提交成功只证明所述操作完成。即使全部检查通过,也不能据此推断这些操作覆盖了整个任务。
+   例如同样是逐条确认文件存在: 如果目标明确只要求检查这些路径,且结果覆盖了全部路径,可以放行;
+   如果目标未限定为路径检查,回复也没有说明检查涵盖完整任务,返回 block_with_feedback,要求核对其余必需项。
 
 2. **block_with_feedback 的常见情境**:
 

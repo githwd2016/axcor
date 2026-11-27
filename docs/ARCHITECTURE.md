@@ -624,6 +624,8 @@ def _register_observers(self, ctx):
 - **翻译层（`Plugin._on_*_intercept`，plugin 层 owns）**：把 `StopHookResult` / `PreToolUseResult` / `IterationGateResult` 翻成 `InterceptResult` + 调度插件自己的 `on_let_exit` 回调 + 日志。**纯翻译，不碰框架内部状态**。
 - **副作用层（orchestrator 的控制事件消费点 owns）**：`_decide_stop` / `_decide_pre_tool_use` / `_run_iteration_boundary_gates` 拿到 `InterceptResult` 后做框架级反应——经 `HookDecisionEmitter`（`core/reviewer.py`）发 `LOG_AUTO` 决策事件、`SingleLoopEngine.mark_reviewer_let_exit`。reviewer 的 LLM 判定编排（`_run_llm_stop_review` / `_run_nl_question_review`）移入 `ReviewerInterceptor`，副作用（`mark_reviewer_let_exit` / `schedule_retry` / `inject_prompt`）仍经 `ReviewerHost` 回调 orchestrator。插件不再伸手进 `single_loop`。
 
+通用 Stop Hook 的 reviewer 根据配置的任务目标、worker 末条回复和磁盘事实判定完成。放行需要末条回复提供覆盖整个任务范围的明确完成依据，并满足已知的验证要求。磁盘事实只证明所列文件的落盘和占位状态。若回复只汇报一组路径检查、报告更新或提交结果，且无法确认这些工作覆盖完整目标，返回 `block_with_feedback`，要求核对其余必需项。若已知任务的完整范围就是这些检查，且回复逐项给出结果，可以放行。
+
 `InterceptResult` 的 action 语义（控制事件链的通用契约，plugin 与 reviewer 共用）：
 
 | action | 含义 | 框架反应 |
